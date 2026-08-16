@@ -10,6 +10,10 @@
     "session-search"
   ],
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LeeKai233/dsh-session-search-plus.git"
+  },
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
