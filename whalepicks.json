@@ -2,7 +2,7 @@
   "schemaVersion": "1.1",
   "id": "dsh-session-search-plus",
   "name": "dsh-session-search-plus",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": {
     "zh": "DSH 会话搜索框增强：自建内存索引毫秒检索，范围/模糊/大小写/全词过滤，每会话多命中下拉，锚点精确跳转并页内高亮框选",
     "en": "DSH session search upgrade: a private in-memory index answers in milliseconds, with scope/fuzzy/case/whole-word filters, a per-session hit dropdown, and anchor-precise jump with in-page highlighting"

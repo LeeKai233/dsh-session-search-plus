@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-search-plus",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DSH 会话搜索框增强：自建高速内存索引 + /api/search-plus 路由，接管官方侧栏搜索框（标题/内容过滤、模糊、大小写、全词匹配、多命中下拉、跳转高亮）",
   "keywords": [
     "dsh",
