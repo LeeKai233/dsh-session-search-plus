@@ -1,0 +1,11 @@
+# dsh-session-search-plus bundle patch: inserts the host-only search-plus
+# plugin row. Applied automatically once the package joins the profile's
+# bundle list (dsh plugin --profile web add dsh-session-search-plus).
+#
+# WARNING: never add the same "session-search-plus" insert row to the user
+# profile patch (~/.dsh/profiles/<profile>/cordis.patch.yml) too — insert rows
+# are not deduplicated by id across layers and the loader refuses to boot with
+# "duplicate loader entry id: session-search-plus". Pick exactly one route.
+- insert:
+    - id: session-search-plus
+      name: "dsh-session-search-plus"
