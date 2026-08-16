@@ -40,7 +40,7 @@ export default defineConfig([
   },
   {
     name: PLUGIN_ID + '/client',
-    entry: { client: 'src/client/workspace-browser.js' },
+    entry: { client: 'src/client/index.ts' },
     outDir: 'lib',
     format: 'cjs',
     platform: 'browser',
