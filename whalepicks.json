@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.1",
+  "id": "dsh-session-search-plus",
+  "name": "dsh-session-search-plus",
+  "version": "0.1.1",
+  "description": {
+    "zh": "DSH 会话搜索框增强：自建内存索引毫秒检索，范围/模糊/大小写/全词过滤，每会话多命中下拉，锚点精确跳转并页内高亮框选",
+    "en": "DSH session search upgrade: a private in-memory index answers in milliseconds, with scope/fuzzy/case/whole-word filters, a per-session hit dropdown, and anchor-precise jump with in-page highlighting"
+  },
+  "category": "other",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "search",
+    "search-plus",
+    "session-search"
+  ],
+  "scope": {
+    "does": [
+      "接管官方侧栏搜索框：宿主半区对 user/assistant 消息文本建内存索引并提供 /api/search-plus/query（毫秒级），浏览器半区在官方搜索 UI 上就地增强——范围/模糊/大小写/全词过滤、每会话多命中下拉、点击命中按事件 seq 精确定位跳转并在页内填充高亮所选、框选其余"
+    ],
+    "doesNot": [
+      "不索引工具参数、工具结果、推理过程等噪声内容（只取 user/assistant 文本块）",
+      "不发送任何外部网络请求（仅访问本机同源、由自身宿主半区提供的 /api/search-plus/query）",
+      "不改变官方搜索自身的行为、入口与排序（官方索引的启动预热归 dsh-session-search-warmup，两者互补）"
+    ]
+  },
+  "install": {
+    "profile": "web",
+    "spec": "dsh-session-search-plus"
+  },
+  "runtime": {
+    "platforms": [
+      "web"
+    ],
+    "dsh": ">=0.1.0-rc.6 <0.2.0"
+  },
+  "patches": {
+    "bundle": "cordis.patch.yml",
+    "insertIds": [
+      "session-search-plus"
+    ],
+    "namespaces": [],
+    "slots": [
+      "sidebar.workspaces",
+      "conversation.hero.workspace"
+    ]
+  },
+  "capabilities": {
+    "network": false,
+    "telemetry": false,
+    "permissions": []
+  },
+  "deps": [],
+  "perf": {
+    "polls": {},
+    "memoryEstimateMB": 30,
+    "gpu": false,
+    "timers": 0
+  },
+  "cost": {
+    "license": "MIT",
+    "paid": false,
+    "paidTiers": []
+  },
+  "links": {
+    "repo": "https://github.com/LeeKai233/dsh-session-search-plus",
+    "npm": "https://www.npmjs.com/package/dsh-session-search-plus"
+  },
+  "maintainers": [
+    {
+      "name": "LeeKai233",
+      "contact": "https://github.com/LeeKai233"
+    }
+  ]
+}
