@@ -40,11 +40,13 @@
 .dsh-sp-chevron{box-sizing:border-box;cursor:pointer;width:auto;min-width:30px;height:28px;flex:none;color:var(--dsw-alias-label-tertiary);background:transparent;border:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;padding:0 7px;margin-right:6px;font-size:12px;overflow:hidden;white-space:nowrap}
 .dsh-sp-chevron:hover{color:var(--dsw-alias-label-primary)}
 .dsh-sp-hits{box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:4px 8px 6px 22px;position:relative}
-.dsh-sp-hits::before{content:"";position:absolute;left:16px;top:0;bottom:0;width:1px;background:var(--dsw-alias-border-l2);opacity:0;transition:opacity .1s linear;pointer-events:none}
-.dsh-sp-results:hover .dsh-sp-hits::before{opacity:1}
+.dsh-sp-hits::before{content:"";position:absolute;left:16px;top:0;bottom:0;width:1px;background:transparent;opacity:0;transition:opacity .1s linear;pointer-events:none}
+.dsh-sp-results:hover .dsh-sp-hits::before{opacity:1;background:var(--dsw-alias-border-l1,rgba(128,128,128,.25))}
+.dsh-sp-results .dsh-sp-hits.dsh-sp-active::before{opacity:1;background:var(--dsw-alias-border-l2)}
 .dsh-sp-hitRow{box-sizing:border-box;cursor:pointer;text-align:left;color:var(--dsw-alias-label-secondary);background:transparent;border:none;border-radius:6px;padding:3px 6px;font-size:12px;line-height:17px;width:100%;display:flex;align-items:baseline}
 .dsh-sp-hitSnippet{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-sp-hitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-sp-hitRow.dsh-sp-selected{background:var(--dsw-alias-interactive-bg-hover)}
 span.dsh-search-hit{background:rgba(65,118,230,.16);color:#2b5bb8;border-radius:2px;padding:0}
 span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 `;
@@ -717,8 +719,11 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 		*/
 		// [search-plus] enhanced search result row: colored title/snippet,
 		// chevron dropdown listing every hit in the session, click = jump.
-		function SearchResultItem({ result, currentId, onOpen, onJump, expanded, onToggleExpand, filters, query, t }) {
-			const selected = result.id === currentId;
+		function SearchResultItem({ result, currentId, onOpen, onJump, expanded, onToggleExpand, filters, query, selectedHitKey, onSelectHit, t }) {
+			// [search-plus] while one of this row's hits is selected, the header
+			// yields the selected background to it (vscode tree selection).
+			const ownsSelection = selectedHitKey !== null && selectedHitKey.startsWith(result.id + ":");
+			const selected = result.id === currentId && !ownsSelection;
 			const statuses = sessionStatuses(result, t);
 			const primaryStatus = statuses[0];
 			const colored = (text, runs) => {
@@ -730,7 +735,9 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 			const best = result.matches !== void 0 && result.matches.length > 0 ? result.matches[0] : void 0;
 			const jumpWith = (hit) => {
 				// [search-plus] the jump target carries the query (its absence used
-				// to crash the marker) and the search-time matching flags.
+				// to crash the marker) and the search-time matching flags; the hit
+				// also takes the result-list selection.
+				onSelectHit?.(result.id + ":" + hit.seq);
 				if (onJump !== void 0) onJump({
 					sessionId: result.id,
 					seq: hit.seq,
@@ -798,10 +805,10 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 						})]
 					}),
 					expanded && (0, react_jsx_runtime.jsx)("div", {
-						className: "dsh-sp-hits",
+						className: clsx("dsh-sp-hits", ownsSelection && "dsh-sp-active"),
 						children: (result.matches ?? []).map((hit, index) => (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
-							className: "dsh-sp-hitRow",
+							className: clsx("dsh-sp-hitRow", selectedHitKey === result.id + ":" + hit.seq && "dsh-sp-selected"),
 							key: index,
 							onClick: () => jumpWith(hit),
 							children: (0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-hitSnippet", children: colored(hit.snippet, hit.matchRuns) })
@@ -1729,6 +1736,12 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 				else next.add(id);
 				return next;
 			});
+			// [search-plus] the clicked hit owns the selection (vscode: the match
+			// row takes the background, never its file row); reset on new query.
+			const [selectedHitKey, setSelectedHitKey] = (0, react.useState)(null);
+			(0, react.useEffect)(() => {
+				setSelectedHitKey(null);
+			}, [query]);
 			const currentRemote = remote.query === query ? remote : {
 				query,
 				status: "loading",
@@ -1763,6 +1776,8 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 								onJump: jumpTo,
 								filters,
 								query,
+								selectedHitKey,
+								onSelectHit: setSelectedHitKey,
 								expanded: expandedSessions.has(result.id),
 								onToggleExpand: () => toggleExpanded(result.id),
 								t
@@ -1852,6 +1867,17 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 				if (currentSessionId === previous) return;
 				if (jump.target !== null && currentSessionId !== void 0 && currentSessionId !== jump.target.sessionId) clearJump();
 			}, [currentSessionId, jump, clearJump]);
+			// [search-plus] after the search box is closed, the next click anywhere
+			// retires the marks (the collapsing click itself can't: this listener
+			// arms only once searchExpanded is already false).
+			(0, react.useEffect)(() => {
+				if (jump.target === null || searchExpanded) return;
+				const onClick = () => clearJump();
+				document.addEventListener("click", onClick);
+				return () => {
+					document.removeEventListener("click", onClick);
+				};
+			}, [jump, searchExpanded, clearJump]);
 			const normalizedQuery = sanitizeSearchQuery(query).trim();
 			const [remoteSearch, setRemoteSearch] = (0, react.useState)({
 				query: "",
