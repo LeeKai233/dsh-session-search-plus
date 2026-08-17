@@ -139,17 +139,10 @@ export const en = {
 
 /** search-plus additions to the workspace NS (zh). */
 export const searchPlusZh = {
-  'searchPlus.filter': '过滤',
-  'searchPlus.scope': '搜索范围',
-  'searchPlus.scopeAll': '全部',
-  'searchPlus.scopeTitle': '标题',
-  'searchPlus.scopeContent': '内容',
-  'searchPlus.fuzzy': '模糊搜索',
   'searchPlus.case': '大小写敏感',
   'searchPlus.word': '全词匹配',
-  'searchPlus.chipFuzzy': '模糊',
-  'searchPlus.chipCase': '大小写',
-  'searchPlus.chipWord': '全词',
+  'searchPlus.regex': '正则表达式',
+  'searchPlus.fuzzy': '模糊搜索',
   'searchPlus.expand': '展开匹配',
   'searchPlus.collapse': '收起匹配',
   'searchPlus.error': '搜索失败，请重试',
@@ -157,17 +150,10 @@ export const searchPlusZh = {
 
 /** search-plus additions to the workspace NS (en). */
 export const searchPlusEn = {
-  'searchPlus.filter': 'Filters',
-  'searchPlus.scope': 'Scope',
-  'searchPlus.scopeAll': 'All',
-  'searchPlus.scopeTitle': 'Title',
-  'searchPlus.scopeContent': 'Content',
-  'searchPlus.fuzzy': 'Fuzzy',
   'searchPlus.case': 'Case sensitive',
   'searchPlus.word': 'Whole word',
-  'searchPlus.chipFuzzy': 'Fuzzy',
-  'searchPlus.chipCase': 'Case',
-  'searchPlus.chipWord': 'Word',
+  'searchPlus.regex': 'Regular expression',
+  'searchPlus.fuzzy': 'Fuzzy',
   'searchPlus.expand': 'Expand matches',
   'searchPlus.collapse': 'Collapse matches',
   'searchPlus.error': 'Search failed, retry',

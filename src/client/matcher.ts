@@ -23,11 +23,24 @@ export function wholeWordIndexOf(hay: string, needle: string, from: number): num
 }
 
 /**
- * Locate a query in a title/snippet: substring or fzf-style subsequence.
- * `wholeWord` requires substring hits to sit on word boundaries (ignored under fuzzy).
+ * Locate a query in a title/snippet: substring, fzf-style subsequence, or regex.
+ * `wholeWord` requires hits on word boundaries (regex: wraps the pattern in `\b`;
+ * ignored under fuzzy). Invalid regexes match nothing.
  * @returns contiguous matched runs (code-unit offsets), or null.
  */
-export function findRunsInText(text: string, query: string, fuzzy: boolean, caseSensitive: boolean, wholeWord = false): ClientRun[] | null {
+export function findRunsInText(text: string, query: string, fuzzy: boolean, caseSensitive: boolean, wholeWord = false, regex = false): ClientRun[] | null {
+  if (query.length === 0 || text.length === 0) return null
+  if (regex) {
+    let re: RegExp
+    try {
+      re = new RegExp(wholeWord ? `\\b(?:${query})\\b` : query, caseSensitive ? '' : 'i')
+    } catch {
+      return null
+    }
+    const match = re.exec(text)
+    if (match === null || match[0].length === 0) return null
+    return [{ start: match.index, end: match.index + match[0].length }]
+  }
   const needle = caseSensitive ? query : query.toLowerCase()
   const hay = caseSensitive ? text : text.toLowerCase()
   if (needle.length === 0 || hay.length === 0) return null

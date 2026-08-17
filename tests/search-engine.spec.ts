@@ -54,6 +54,19 @@ describe('findRuns', () => {
   it('whole-word is ignored under fuzzy', () => {
     expect(findRuns('pnpm', 'pnpm', 'npm', true, false, true)).not.toBeNull()
   })
+
+  it('regex matches patterns and honors case and \b wrap', () => {
+    expect(findRuns('run npm install now', 'run npm install now', 'npm.*install', false, false, false, true)?.runs).toEqual([{ start: 4, end: 15 }])
+    expect(findRuns('run NPM install', 'run NPM install', 'npm.*install', false, false, false, true)?.runs).toEqual([{ start: 4, end: 15 }])
+    expect(findRuns('run NPM install', 'run NPM install', 'npm.*install', false, true, false, true)).toBeNull()
+    expect(findRuns('xnpm install', 'xnpm install', 'npm', false, false, true, true)).toBeNull()
+    expect(findRuns('(npm) install', '(npm) install', 'npm', false, false, true, true)?.runs).toEqual([{ start: 1, end: 4 }])
+  })
+
+  it('regex returns null for invalid patterns and zero-width matches', () => {
+    expect(findRuns('anything', 'anything', 'np[', false, false, false, true)).toBeNull()
+    expect(findRuns('anything', 'anything', 'n*', false, false, false, true)).toBeNull()
+  })
 })
 
 describe('snippetOf', () => {
@@ -117,7 +130,7 @@ describe('SearchIndex', () => {
     const index = new SearchIndex()
     index.put('s1', 1, 100, 'npm zero. npm one.')
     index.put('s2', 1, 200, 'only npm here')
-    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: false, scope: 'content', limit: 10 })
+    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: false, regex: false, scope: 'content', limit: 10 })
     expect(groups).toHaveLength(2)
     const s1 = groups.find((group) => group.sessionId === 's1')
     expect(s1?.matches[0].occurrenceIndex).toBe(0)
@@ -129,7 +142,7 @@ describe('SearchIndex', () => {
     const index = new SearchIndex()
     for (let seq = 1; seq <= 20; seq++) index.put('s1', seq, 2000 + seq, `npm mention ${seq}`)
     for (let n = 1; n <= 60; n++) index.put(`s${n + 1}`, 1, n, `npm in session ${n}`)
-    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: false, scope: 'content', limit: 10 })
+    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: false, regex: false, scope: 'content', limit: 10 })
     expect(groups).toHaveLength(10)
     expect(groups.find((group) => group.sessionId === 's1')?.matches.length).toBe(8)
   })
@@ -137,17 +150,17 @@ describe('SearchIndex', () => {
   it('supports case-sensitive and fuzzy modes', () => {
     const index = new SearchIndex()
     index.put('s1', 1, 1, 'NPM registry')
-    expect(index.query({ query: 'npm', fuzzy: false, caseSensitive: true, wholeWord: false, scope: 'content', limit: 10 })).toHaveLength(0)
-    expect(index.query({ query: 'NPM', fuzzy: false, caseSensitive: true, wholeWord: false, scope: 'content', limit: 10 })).toHaveLength(1)
+    expect(index.query({ query: 'npm', fuzzy: false, caseSensitive: true, wholeWord: false, regex: false, scope: 'content', limit: 10 })).toHaveLength(0)
+    expect(index.query({ query: 'NPM', fuzzy: false, caseSensitive: true, wholeWord: false, regex: false, scope: 'content', limit: 10 })).toHaveLength(1)
     index.put('s2', 1, 2, 'n x p x m scattered')
-    expect(index.query({ query: 'npm', fuzzy: true, caseSensitive: false, wholeWord: false, scope: 'content', limit: 10 })).toHaveLength(2)
+    expect(index.query({ query: 'npm', fuzzy: true, caseSensitive: false, wholeWord: false, regex: false, scope: 'content', limit: 10 })).toHaveLength(2)
   })
 
   it('whole-word filters glued hits end to end', () => {
     const index = new SearchIndex()
     index.put('s1', 1, 1, 'pnpm workspace npm 对 file 引用')
     index.put('s2', 1, 2, 'batnpmdom glued')
-    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: true, scope: 'content', limit: 10 })
+    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: true, regex: false, scope: 'content', limit: 10 })
     expect(groups.map((group) => group.sessionId)).toEqual(['s1'])
     expect(groups[0].snippet).toContain('npm')
   })
@@ -157,9 +170,19 @@ describe('SearchIndex', () => {
     index.put('s1', 1, 100, '重复注入的 npm 上下文')
     index.put('s1', 2, 200, '重复注入的 npm 上下文')
     index.put('s1', 3, 300, '另一条 npm 消息')
-    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: false, scope: 'content', limit: 10 })
+    const groups = index.query({ query: 'npm', fuzzy: false, caseSensitive: false, wholeWord: false, regex: false, scope: 'content', limit: 10 })
     expect(groups[0].matches).toHaveLength(2)
     expect(groups[0].matches.map((hit) => hit.seq)).toEqual([1, 3])
+  })
+
+  it('regex queries match patterns end to end', () => {
+    const index = new SearchIndex()
+    index.put('s1', 1, 100, 'please run npm install first')
+    index.put('s2', 1, 200, 'nothing here')
+    const groups = index.query({ query: 'npm\\s+install', fuzzy: false, caseSensitive: false, wholeWord: false, regex: true, scope: 'content', limit: 10 })
+    expect(groups.map((group) => group.sessionId)).toEqual(['s1'])
+    const hit = groups[0].matches[0]
+    expect(hit.snippet.slice(hit.matchRuns[0].start, hit.matchRuns[0].end)).toBe('npm install')
   })
 })
 

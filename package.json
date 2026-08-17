@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-search-plus",
-  "version": "0.1.2",
-  "description": "DSH 会话搜索框增强：自建高速内存索引 + /api/search-plus 路由，接管官方侧栏搜索框（标题/内容过滤、模糊、大小写、全词匹配、多命中下拉、跳转高亮）",
+  "version": "0.2.0",
+  "description": "DSH 会话搜索框增强：自建高速内存索引 + /api/search-plus 路由，接管官方侧栏搜索框（vscode 风格 Aa/ab/.*/fz 模式开关、多命中下拉、锚点跳转高亮）",
   "keywords": [
     "dsh",
     "deepseek-harness",

@@ -26,26 +26,22 @@
 				jumpListeners = jumpListeners.filter((item) => item !== listener);
 			};
 		};
-		// [search-plus] cached stylesheet for filter/dropdown/chip/mark styles.
+		// [search-plus] cached stylesheet for mode-toggles/dropdown/mark styles.
 		let searchPlusCssTag = null;
 		const searchPlusCss = `
-.dsh-sp-filterBtn{box-sizing:border-box;cursor:pointer;width:26px;height:26px;flex:none;color:var(--dsw-alias-label-tertiary);background:transparent;border:none;border-radius:8px;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0;margin-left:2px}
-.dsh-sp-filterBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dsh-sp-filterBtn.dsh-sp-active{color:var(--dsw-alias-state-business-primary)}
-.dsh-sp-chips{flex:none;display:flex;align-items:center;gap:3px;overflow:hidden;margin:0 0 4px;padding-left:2px}
-.dsh-sp-chip{flex:none;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);border-radius:4px;padding:0 4px;font-size:11px;line-height:16px}
-.dsh-sp-filterPop{position:fixed;z-index:70;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-button-elevated-fill,var(--dsw-specific-sidebar-fill));box-shadow:var(--dsw-shadow-lv2);display:flex;flex-direction:column;gap:6px;padding:8px;min-width:170px}
-.dsh-sp-filterRow{display:flex;align-items:center;gap:6px}
-.dsh-sp-filterLabel{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;min-width:56px}
-.dsh-sp-toggle{box-sizing:border-box;cursor:pointer;color:var(--dsw-alias-label-secondary);background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:1px 8px;font-size:12px;line-height:18px}
-.dsh-sp-toggle.dsh-sp-on{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}
+.dsh-sp-modes{flex:none;display:flex;align-items:center;margin-right:2px}
+.dsh-sp-modeBtn{box-sizing:border-box;cursor:pointer;width:20px;height:20px;flex:none;color:var(--dsw-alias-label-tertiary);background:transparent;border:1px solid transparent;border-radius:3px;font:11px/1 var(--ds-font-family-code,monospace);display:inline-flex;align-items:center;justify-content:center;padding:0;margin-left:2px;user-select:none}
+.dsh-sp-modeBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sp-modeBtn.dsh-sp-on{color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-state-business-primary)}
 .dsh-sp-rowWrap{display:flex;flex-direction:column;min-width:0;overflow:hidden}
 .dsh-sp-rowFrame.dsh-sp-rowFrame{flex-direction:row;align-items:center}
 .dsh-sp-rowMain{flex:1;min-width:0;display:flex;flex-direction:column}
 .dsh-sp-hit{color:#2b5bb8;font-weight:600}
 .dsh-sp-chevron{box-sizing:border-box;cursor:pointer;width:auto;min-width:30px;height:28px;flex:none;color:var(--dsw-alias-label-tertiary);background:transparent;border:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;padding:0 7px;margin-right:6px;font-size:12px;overflow:hidden;white-space:nowrap}
 .dsh-sp-chevron:hover{color:var(--dsw-alias-label-primary)}
-.dsh-sp-hits{box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:4px 8px 6px 22px}
+.dsh-sp-hits{box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:4px 8px 6px 22px;position:relative}
+.dsh-sp-hits::before{content:"";position:absolute;left:16px;top:0;bottom:0;width:1px;background:var(--dsw-alias-border-l2);opacity:0;transition:opacity .1s linear;pointer-events:none}
+.dsh-sp-results:hover .dsh-sp-hits::before{opacity:1}
 .dsh-sp-hitRow{box-sizing:border-box;cursor:pointer;text-align:left;color:var(--dsw-alias-label-secondary);background:transparent;border:none;border-radius:6px;padding:3px 6px;font-size:12px;line-height:17px;width:100%;display:flex;align-items:baseline}
 .dsh-sp-hitSnippet{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-sp-hitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -307,10 +303,10 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 				items: [],
 				hasMore: false
 			};
-			const scope = filters?.scope ?? "all";
-			const fuzzy = filters?.fuzzy !== false;
+			const fuzzy = filters?.fuzzy === true;
 			const caseSensitive = filters?.caseSensitive === true;
 			const wholeWord = filters?.wholeWord === true;
+			const regex = filters?.regex === true;
 			const archived = new Set(archivedSessionIds);
 			const descendants = (0, _deepseek_ai_dsh_client_runtime_client.indexSubagentDescendants)(list.byId);
 			const workspaceBySession = /* @__PURE__ */ new Map();
@@ -323,18 +319,16 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 			// shared summaries (stale runs from an earlier search recolored titles)
 			// and never apply label offsets to the title text (misplaced marks).
 			const titleRunsById = /* @__PURE__ */ new Map();
-			if (scope !== "content") {
-				for (const id of list.ids) {
-					const summary = list.byId[id];
-					if (summary === void 0 || summary.blank || !sessionVisible(summary, list.current, archived)) continue;
-					const title = sessionTitle(summary);
-					const label = labelOf(summary);
-					const titleRuns = searchPlusMatcher.findRunsInText(title, q, fuzzy, caseSensitive, wholeWord);
-					const labelRuns = titleRuns === null ? searchPlusMatcher.findRunsInText(label, q, fuzzy, caseSensitive, wholeWord) : null;
-					if (titleRuns !== null || labelRuns !== null) {
-						if (titleRuns !== null) titleRunsById.set(id, titleRuns);
-						local.push(summary);
-					}
+			for (const id of list.ids) {
+				const summary = list.byId[id];
+				if (summary === void 0 || summary.blank || !sessionVisible(summary, list.current, archived)) continue;
+				const title = sessionTitle(summary);
+				const label = labelOf(summary);
+				const titleRuns = searchPlusMatcher.findRunsInText(title, q, fuzzy, caseSensitive, wholeWord, regex);
+				const labelRuns = titleRuns === null ? searchPlusMatcher.findRunsInText(label, q, fuzzy, caseSensitive, wholeWord, regex) : null;
+				if (titleRuns !== null || labelRuns !== null) {
+					if (titleRuns !== null) titleRunsById.set(id, titleRuns);
+					local.push(summary);
 				}
 			}
 			local.sort(byRecency);
@@ -346,11 +340,9 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 				ordered.push(summary);
 			};
 			for (const summary of local) include(summary);
-			if (scope !== "title") {
-				for (const item of content.items) {
-					const summary = list.byId[item.sessionId];
-					if (summary !== void 0 && !summary.blank && sessionVisible(summary, list.current, archived)) include(summary);
-				}
+			for (const item of content.items) {
+				const summary = list.byId[item.sessionId];
+				if (summary !== void 0 && !summary.blank && sessionVisible(summary, list.current, archived)) include(summary);
 			}
 			return {
 				items: ordered.slice(0, limit).map((summary) => {
@@ -745,7 +737,8 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 					query,
 					occurrenceIndex: hit.occurrenceIndex,
 					caseSensitive: filters?.caseSensitive === true,
-					wholeWord: filters?.wholeWord === true
+					wholeWord: filters?.wholeWord === true,
+					regex: filters?.regex === true
 				});
 				else onOpen(result.id);
 			};
@@ -811,7 +804,7 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 							className: "dsh-sp-hitRow",
 							key: index,
 							onClick: () => jumpWith(hit),
-							children: colored(hit.snippet, hit.matchRuns)
+							children: (0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-hitSnippet", children: colored(hit.snippet, hit.matchRuns) })
 						}))
 					})
 				]
@@ -1759,7 +1752,7 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 					className: WorkspaceBrowser_module_css_default.list,
 					children: [
 						(0, react_jsx_runtime.jsx)("div", {
-							className: WorkspaceBrowser_module_css_default.searchTree,
+							className: clsx(WorkspaceBrowser_module_css_default.searchTree, "dsh-sp-results"),
 							role: "tree",
 							"aria-label": t("search.results.aria"),
 							children: results.items.map((result) => (0, react_jsx_runtime.jsx)(SearchResultItem, {
@@ -1826,14 +1819,8 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 			]);
 			const [query, setQuery] = (0, react.useState)("");
 			const [searchExpanded, setSearchExpanded] = (0, react.useState)(false);
-			// [search-plus] filter state for the enhanced search.
-			const [searchFilters, setSearchFilters] = (0, react.useState)({ scope: "all", fuzzy: false, caseSensitive: false, wholeWord: false });
-			const [filterOpen, setFilterOpen] = (0, react.useState)(false);
-			const filterPopRef = (0, react.useRef)(null);
-			// [search-plus] measured anchor rect for the filter popover (null =
-			// closed/not yet measured); tracked with a ResizeObserver so the
-			// popover follows the search box through its expand transition.
-			const [filterPopRect, setFilterPopRect] = (0, react.useState)(null);
+			// [search-plus] vscode-style matching modes (inline toggle buttons).
+			const [searchFilters, setSearchFilters] = (0, react.useState)({ fuzzy: false, caseSensitive: false, wholeWord: false, regex: false });
 			// [search-plus] jump mark target (module store).
 			const jump = (0, react.useSyncExternalStore)(subscribeJump, getJump);
 			// [search-plus] re-mark after React re-renders wipe the spans. The
@@ -1865,8 +1852,6 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 				if (currentSessionId === previous) return;
 				if (jump.target !== null && currentSessionId !== void 0 && currentSessionId !== jump.target.sessionId) clearJump();
 			}, [currentSessionId, jump, clearJump]);
-			const filterActive = searchPlusFilters.filtersDiffer(searchFilters);
-			const filterChips = searchPlusFilters.filterChipKeys(searchFilters).map((key) => t(key));
 			const normalizedQuery = sanitizeSearchQuery(query).trim();
 			const [remoteSearch, setRemoteSearch] = (0, react.useState)({
 				query: "",
@@ -1902,12 +1887,8 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 			(0, react.useEffect)(() => {
 				if (!wide || !searchExpanded) return;
 				const onClick = (event) => {
-					// [search-plus] the filter popover counts as "inside"; any
-					// real outside click closes it (and never leaves it stale
-					// for the next expand).
-					const inside = searchRoot.current?.contains(event.target) === true || filterPopRef.current?.contains(event.target) === true;
+					const inside = searchRoot.current?.contains(event.target) === true;
 					if (!(event.target instanceof Node) || inside) return;
-					setFilterOpen(false);
 					searchInput.current?.blur();
 					if (normalizedQuery !== "") return;
 					setSearchExpanded(false);
@@ -1921,55 +1902,11 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 				wide,
 				searchExpanded
 			]);
-			// [search-plus] measure the search box anchor while the popover is
-			// open. ResizeObserver fires on every frame of the expand/collapse
-			// width transition, so the popover tracks the box instead of
-			// keeping a stale mid-animation rect. filterChips.length is a
-			// dependency because the chips strip above the header pushes the
-			// search row down/up without changing its size.
-			(0, react.useLayoutEffect)(() => {
-				if (!filterOpen || !searchExpanded) {
-					setFilterPopRect(null);
-					return;
-				}
-				const anchor = searchRoot.current;
-				if (!(anchor instanceof HTMLElement)) return;
-				const update = () => {
-					const rect = anchor.getBoundingClientRect();
-					setFilterPopRect({
-						top: rect.bottom + 4,
-						left: rect.left,
-						width: rect.width
-					});
-				};
-				update();
-				const observer = new ResizeObserver(update);
-				observer.observe(anchor);
-				window.addEventListener("resize", update);
-				return () => {
-					observer.disconnect();
-					window.removeEventListener("resize", update);
-				};
-			}, [
-				filterOpen,
-				searchExpanded,
-				filterChips.length
-			]);
 			(0, react.useEffect)(() => {
 				if (normalizedQuery === "") {
 					setRemoteSearch({
 						query: "",
 						status: "idle",
-						items: [],
-						hasMore: false
-					});
-					return;
-				}
-				// [search-plus] title-only scope never hits the content route.
-				if (searchFilters.scope === "title") {
-					setRemoteSearch({
-						query: normalizedQuery,
-						status: "ready",
 						items: [],
 						hasMore: false
 					});
@@ -2099,13 +2036,6 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: clsx(WorkspaceBrowser_module_css_default.root, !wide && WorkspaceBrowser_module_css_default.rail),
 				children: [
-					// [search-plus] state chips strip in the vertical gap between the
-					// sidebar's New Session button (hHd-Xa_newSession, above the
-					// regionArea slot) and this search row.
-					searchExpanded && filterChips.length > 0 && (0, react_jsx_runtime.jsx)("div", {
-						className: "dsh-sp-chips",
-						children: filterChips.map((chip) => (0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-chip", key: chip, children: chip }))
-					}),
 					(0, react_jsx_runtime.jsxs)("div", {
 						className: WorkspaceBrowser_module_css_default.sectionHeader,
 						children: [
@@ -2120,8 +2050,6 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 									className: clsx(WorkspaceBrowser_module_css_default.search, searchExpanded && WorkspaceBrowser_module_css_default.searchExpanded),
 									onClick: () => {
 										setWsPickerOpen(false);
-										// [search-plus] clicking the input area dismisses the filter popover.
-										setFilterOpen(false);
 										setSearchExpanded(true);
 										searchInput.current?.focus();
 									},
@@ -2143,20 +2071,6 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutline16, { size: searchExpanded ? 11 : 14 })
 											})
 										}),
-										// [search-plus] filter bar on the left of the input.
-										searchExpanded && (0, react_jsx_runtime.jsx)("button", {
-											type: "button",
-											className: clsx("dsh-sp-filterBtn", filterActive && "dsh-sp-active"),
-											"aria-label": t("searchPlus.filter"),
-											title: t("searchPlus.filter"),
-											onClick: (e) => {
-												e.stopPropagation();
-												setFilterOpen((value) => !value);
-											},
-											children: filterActive ? "◈" : "◇"
-										}),
-										// [search-plus] state chips live in the strip above the
-										// section header, never inside the input row.
 										(0, react_jsx_runtime.jsx)("input", {
 											ref: searchInput,
 											className: WorkspaceBrowser_module_css_default.searchInput,
@@ -2171,9 +2085,29 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 											onKeyDown: (e) => {
 												if (e.key !== "Escape") return;
 												setQuery("");
-												setFilterOpen(false);
 												setSearchExpanded(false);
 											}
+										}),
+										// [search-plus] vscode-style inline mode toggles (Aa ab .* fz).
+										searchExpanded && (0, react_jsx_runtime.jsx)("span", {
+											className: "dsh-sp-modes",
+											children: [
+												["caseSensitive", "Aa", "searchPlus.case"],
+												["wholeWord", "ab", "searchPlus.word"],
+												["regex", ".*", "searchPlus.regex"],
+												["fuzzy", "fz", "searchPlus.fuzzy"]
+											].map(([key, glyph, labelKey]) => (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: clsx("dsh-sp-modeBtn", searchFilters[key] === true && "dsh-sp-on"),
+												"aria-label": t(labelKey),
+												"aria-pressed": searchFilters[key] === true,
+												title: t(labelKey),
+												onClick: (e) => {
+													e.stopPropagation();
+													setSearchFilters(searchPlusFilters.applyToggle(searchFilters, key));
+												},
+												children: glyph
+											}, key))
 										}),
 										searchExpanded && (0, react_jsx_runtime.jsx)("button", {
 											type: "button",
@@ -2182,7 +2116,6 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 											onClick: (e) => {
 												e.stopPropagation();
 												setQuery("");
-												setFilterOpen(false);
 												setSearchExpanded(false);
 											},
 											children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFill14, {})
@@ -2236,66 +2169,6 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 									setWsPickerOpen(false);
 								}
 							}),
-							// [search-plus] filter popover anchored under the search box;
-							// position/width come from the measured anchor rect, so the
-							// popover matches the box width and never uses a stale rect.
-							filterOpen && searchExpanded && filterPopRect !== null && (0, react_jsx_runtime.jsxs)("div", {
-								ref: filterPopRef,
-								className: "dsh-sp-filterPop",
-								style: filterPopRect,
-								children: [
-									(0, react_jsx_runtime.jsxs)("div", {
-										className: "dsh-sp-filterRow",
-										children: [
-											(0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-filterLabel", children: t("searchPlus.scope") }),
-											(["all", "title", "content"]).map((scope) => (0, react_jsx_runtime.jsx)("button", {
-												type: "button",
-												key: scope,
-												className: clsx("dsh-sp-toggle", searchFilters.scope === scope && "dsh-sp-on"),
-												onClick: () => setSearchFilters({ ...searchFilters, scope }),
-												children: scope === "all" ? t("searchPlus.scopeAll") : scope === "title" ? t("searchPlus.scopeTitle") : t("searchPlus.scopeContent")
-											}))
-										]
-									}),
-									(0, react_jsx_runtime.jsxs)("div", {
-										className: "dsh-sp-filterRow",
-										children: [
-											(0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-filterLabel", children: t("searchPlus.fuzzy") }),
-											(0, react_jsx_runtime.jsx)("button", {
-												type: "button",
-												className: clsx("dsh-sp-toggle", searchFilters.fuzzy && "dsh-sp-on"),
-												// [search-plus] fuzzy and whole-word are mutually exclusive modes.
-												onClick: () => setSearchFilters(searchFilters.fuzzy ? { ...searchFilters, fuzzy: false } : { ...searchFilters, fuzzy: true, wholeWord: false }),
-												children: searchFilters.fuzzy ? "ON" : "OFF"
-											})
-										]
-									}),
-									(0, react_jsx_runtime.jsxs)("div", {
-										className: "dsh-sp-filterRow",
-										children: [
-											(0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-filterLabel", children: t("searchPlus.case") }),
-											(0, react_jsx_runtime.jsx)("button", {
-												type: "button",
-												className: clsx("dsh-sp-toggle", searchFilters.caseSensitive && "dsh-sp-on"),
-												onClick: () => setSearchFilters({ ...searchFilters, caseSensitive: !searchFilters.caseSensitive }),
-												children: searchFilters.caseSensitive ? "ON" : "OFF"
-											})
-										]
-									}),
-									(0, react_jsx_runtime.jsxs)("div", {
-										className: "dsh-sp-filterRow",
-										children: [
-											(0, react_jsx_runtime.jsx)("span", { className: "dsh-sp-filterLabel", children: t("searchPlus.word") }),
-											(0, react_jsx_runtime.jsx)("button", {
-												type: "button",
-												className: clsx("dsh-sp-toggle", searchFilters.wholeWord && "dsh-sp-on"),
-												onClick: () => setSearchFilters(searchFilters.wholeWord ? { ...searchFilters, wholeWord: false } : { ...searchFilters, wholeWord: true, fuzzy: false }),
-												children: searchFilters.wholeWord ? "ON" : "OFF"
-											})
-										]
-									})
-								]
-							})
 						]
 					}),
 					!wide && (0, react_jsx_runtime.jsx)("div", {
@@ -2561,7 +2434,7 @@ span.dsh-search-hit-box{border:1px solid rgba(65,118,230,.55);border-radius:2px}
 						fuzzy: filters.fuzzy,
 						caseSensitive: filters.caseSensitive,
 						wholeWord: filters.wholeWord === true,
-						scope: filters.scope === "title" ? "title" : "content",
+						regex: filters.regex === true,
 						limit: 50
 					}),
 					signal

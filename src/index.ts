@@ -44,6 +44,8 @@ export interface QueryRequest {
   caseSensitive: boolean
   /** Whole-word: a hit must not touch ASCII word chars on either side. Ignored under fuzzy. */
   wholeWord: boolean
+  /** Query is a regular expression (mutually exclusive with fuzzy; wholeWord wraps it in `\b`). */
+  regex: boolean
   /** 'all' merges content with client-side title matching; 'content' is content-only. */
   scope: 'all' | 'content'
   /** Cap on returned sessions; per-session hits are capped separately. */
@@ -104,10 +106,23 @@ function wholeWordIndexOf(hay: string, needle: string, from: number): number {
  * @param query - caller query (already trimmed, non-empty).
  * @param fuzzy - subsequence matching with consecutive-run bonuses.
  * @param caseSensitive - exact-case comparison.
- * @param wholeWord - substring hits must sit on word boundaries (ignored under fuzzy).
+ * @param wholeWord - hits must sit on word boundaries (regex: wraps the pattern in `\b`; ignored under fuzzy).
+ * @param regex - query is a regular expression (mutually exclusive with fuzzy).
  * @returns matched runs and a score (higher is better), or null.
  */
-export function findRuns(text: string, lower: string, query: string, fuzzy: boolean, caseSensitive: boolean, wholeWord = false): FindResult | null {
+export function findRuns(text: string, lower: string, query: string, fuzzy: boolean, caseSensitive: boolean, wholeWord = false, regex = false): FindResult | null {
+  if (query.length === 0 || text.length === 0) return null
+  if (regex) {
+    let re: RegExp
+    try {
+      re = new RegExp(wholeWord ? `\\b(?:${query})\\b` : query, caseSensitive ? '' : 'i')
+    } catch {
+      return null
+    }
+    const match = re.exec(text)
+    if (match === null || match[0].length === 0) return null
+    return { runs: [{ start: match.index, end: match.index + match[0].length }], score: 0 }
+  }
   const needle = caseSensitive ? query : query.toLowerCase()
   const hay = caseSensitive ? text : lower
   if (needle.length === 0 || hay.length === 0) return null
@@ -159,36 +174,51 @@ export interface Snippet {
 }
 
 /**
- * Window the document around the matched runs with ellipses, so the
- * sidebar row always shows the actual matching content (not a truncated
- * tail). The match sits near the FRONT of the window (`context` lead
- * chars): sidebar rows clip after ~40 visible chars, so a deep offset
- * would hide the hit entirely. Bounded to `cap` code units.
+ * vscode-style left cut (strings.ts lcut): keep the LAST ≤n chars of `text`,
+ * cut at a `\b` word boundary, prefixed when actually cut. Deviation: text
+ * without any word boundary (e.g. long CJK runs) is hard-cut to n chars —
+ * vscode's no-boundary passthrough assumes single-line inputs, ours is a
+ * full message body.
  */
-export function snippetOf(text: string, runs: MatchRun[], context = 16, cap = 240): Snippet {
+function lcut(text: string, n: number, prefix = ''): string {
+  const trimmed = text.trimStart()
+  if (trimmed.length < n) return trimmed
+  const re = /\b/g
+  let i = 0
+  while (re.test(trimmed)) {
+    if (trimmed.length - re.lastIndex < n) break
+    i = re.lastIndex
+    re.lastIndex += 1
+  }
+  if (i === 0) return prefix + trimmed.slice(trimmed.length - n)
+  return prefix + trimmed.substring(i).trimStart()
+}
+
+/**
+ * Window the document around the matched runs, mirroring vscode's
+ * `MatchImpl.preview()`: `before` keeps the last ≤`lead` word-bounded chars
+ * with a leading ellipsis; `inside`+`after` fill the rest of the `cap`
+ * budget; visible clipping is CSS's job (single nowrap-ellipsis container).
+ */
+export function snippetOf(text: string, runs: MatchRun[], lead = 26, cap = 250): Snippet {
   const first = runs[0]
   const last = runs[runs.length - 1]
-  let start = Math.max(0, first.start - context)
-  let end = Math.min(text.length, last.end + context)
-  if (end - start > cap) {
-    // Keep the match near the front of the window.
-    end = Math.min(text.length, start + cap)
-    if (last.end > end) {
-      end = Math.min(text.length, last.end + 12)
-      start = Math.max(0, end - cap)
-    }
-  }
-  const prefix = start > 0 ? '…' : ''
-  const suffix = end < text.length ? '…' : ''
-  const body = text.slice(start, end)
+  const before = lcut(text.slice(0, first.start), lead, '…')
+  let remaining = Math.max(0, cap - before.length)
+  const bodyFull = text.slice(first.start, last.end)
+  const body = bodyFull.slice(0, remaining)
+  remaining -= body.length
+  const afterFull = text.slice(last.end)
+  const after = afterFull.slice(0, remaining)
+  const suffix = after.length < afterFull.length ? '…' : ''
   return {
-    text: prefix + body + suffix,
+    text: before + body + after + suffix,
     matchRuns: runs
-      .filter((run) => run.end > start && run.start < end)
       .map((run) => ({
-        start: Math.max(0, run.start - start) + prefix.length,
-        end: Math.min(body.length, run.end - start) + prefix.length,
-      })),
+        start: run.start - first.start + before.length,
+        end: Math.min(run.end, first.start + body.length) - first.start + before.length,
+      }))
+      .filter((run) => run.end > run.start),
   }
 }
 
@@ -257,7 +287,7 @@ export class SearchIndex {
   }
 
   query(request: QueryRequest): SessionGroup[] {
-    const { query, fuzzy, caseSensitive, wholeWord } = request
+    const { query, fuzzy, caseSensitive, wholeWord, regex } = request
     const limit = Math.max(1, Math.min(request.limit, 200))
     const PER_SESSION_HITS = 8
     const needle = query.trim()
@@ -270,13 +300,13 @@ export class SearchIndex {
       // Identical snippets (re-injected contexts, quoted docs) collapse to one row.
       const seenSnippets = new Set<string>()
       for (const doc of docs.values()) {
-        const found = findRuns(doc.text, doc.lower, needle, fuzzy, caseSensitive, wholeWord)
+        const found = findRuns(doc.text, doc.lower, needle, fuzzy, caseSensitive, wholeWord, regex)
         if (found === null) continue
         if (found.score > best) best = found.score
         if (doc.time > latest) latest = doc.time
         // Occurrence index within this event: count earlier matches.
         let occurrenceIndex = 0
-        if (!fuzzy && !caseSensitive) {
+        if (!fuzzy && !caseSensitive && !regex) {
           const term = needle.toLowerCase()
           let cursor = wholeWord ? wholeWordIndexOf(doc.lower, term, 0) : doc.lower.indexOf(term)
           while (cursor !== -1 && cursor < found.runs[0].start) {
@@ -362,6 +392,7 @@ export async function handleSearchRequest(index: SearchIndex, req: IncomingMessa
     fuzzy: raw.fuzzy !== false,
     caseSensitive: raw.caseSensitive === true,
     wholeWord: raw.wholeWord === true,
+    regex: raw.regex === true,
     scope: raw.scope === 'content' ? 'content' : 'all',
     limit: typeof raw.limit === 'number' && Number.isSafeInteger(raw.limit) ? raw.limit : 50,
   }

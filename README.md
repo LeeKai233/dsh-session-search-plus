@@ -10,11 +10,12 @@ halves):
   `~/.dsh/profiles/web/cordis.patch.yml`). The expand animation, in-place
   results replacing the session list, Esc/outside-click collapse and all
   other official behavior stay byte-identical; only the search path gets
-  surgical changes (marked `// [search-plus]`): a filter bar left of the
-  input (title/content scope, fuzzy subsequence, case sensitivity, whole
-  word — pnpm/batnpmdom no longer hit npm),
-  match-colored snippets, and a per-session hit dropdown (up to 8) on each
-  result row;
+  surgical changes (marked `// [search-plus]`): vscode-style inline mode
+  toggles at the right end of the input (Aa case / ab whole word —
+  pnpm/batnpmdom no longer hit npm / .* regex / fz fuzzy subsequence),
+  the vscode preview window (word-bounded lcut lead + single-line
+  ellipsis), and a per-session hit dropdown (up to 8, indent guide on
+  hover) on each result row;
 - **Private fast index**: only user/context/assistant message TEXT blocks are
   indexed (no tool arguments, results, or reasoning noise); millisecond
   queries bypass the official engine's per-call reconcile;

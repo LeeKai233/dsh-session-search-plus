@@ -20,6 +20,7 @@ export interface JumpTarget {
   /** Search-time flags so conversation marks honor the same matching mode. */
   caseSensitive?: boolean
   wholeWord?: boolean
+  regex?: boolean
 }
 
 export interface JumpStatus {
@@ -33,19 +34,49 @@ const BOX_CLASS = 'dsh-search-hit-box'
 /** Upper bound on history pages pulled while chasing a deep hit (50 messages per page). */
 const MAX_JUMP_PAGES = 100
 
-/** All needle start offsets in one text, honoring the search-time flags. */
-export function matchIndices(text: string, query: string, caseSensitive: boolean, wholeWord: boolean): number[] {
+export interface TextMatch {
+  start: number
+  end: number
+}
+
+/** All query matches in one text, honoring the search-time flags (regex included; zero-width matches are skipped defensively). */
+export function matchRunsOf(text: string, query: string, caseSensitive: boolean, wholeWord: boolean, regex = false): TextMatch[] {
+  if (query.length === 0 || text.length === 0) return []
+  if (regex) {
+    let re: RegExp
+    try {
+      re = new RegExp(wholeWord ? `\\b(?:${query})\\b` : query, caseSensitive ? 'g' : 'gi')
+    } catch {
+      return []
+    }
+    const runs: TextMatch[] = []
+    for (;;) {
+      const match = re.exec(text)
+      if (match === null) return runs
+      if (match[0].length === 0) {
+        re.lastIndex += 1
+        continue
+      }
+      runs.push({ start: match.index, end: match.index + match[0].length })
+      if (runs.length >= 1000) return runs
+    }
+  }
   const needle = caseSensitive ? query : query.toLowerCase()
   const hay = caseSensitive ? text : text.toLowerCase()
-  const indices: number[] = []
-  if (needle.length === 0 || hay.length === 0) return indices
+  const runs: TextMatch[] = []
+  if (needle.length === 0 || hay.length === 0) return runs
   let from = 0
   for (;;) {
     const index = wholeWord ? wholeWordIndexOf(hay, needle, from) : hay.indexOf(needle, from)
-    if (index === -1) return indices
-    indices.push(index)
+    if (index === -1) return runs
+    runs.push({ start: index, end: index + needle.length })
     from = index + needle.length
   }
+}
+
+/** Start offsets of every query match (see matchRunsOf). */
+export function matchIndices(text: string, query: string, caseSensitive: boolean, wholeWord: boolean, regex = false): number[] {
+  return matchRunsOf(text, query, caseSensitive, wholeWord, regex).map((run) => run.start)
 }
 
 export function scrollContainer(): Element | null {
@@ -145,7 +176,7 @@ export function markConversation(container: Element, row: Element, target: JumpT
   clearMarks()
   const caseSensitive = target.caseSensitive === true
   const wholeWord = target.wholeWord === true
-  const length = target.query.length
+  const regex = target.regex === true
   let occurrences = 0
   let selected = false
   // The anchored row: occurrence #occurrenceIndex is filled, the rest boxed.
@@ -153,11 +184,11 @@ export function markConversation(container: Element, row: Element, target: JumpT
     if (isInsideMark(node)) continue
     const text = node.textContent ?? ''
     if (text.length === 0) continue
-    const marks = matchIndices(text, target.query, caseSensitive, wholeWord).map((index) => {
+    const marks = matchRunsOf(text, target.query, caseSensitive, wholeWord, regex).map((run) => {
       const className = !selected && occurrences === target.occurrenceIndex ? MARK_CLASS : BOX_CLASS
       if (className === MARK_CLASS) selected = true
       occurrences += 1
-      return { index, length, className }
+      return { index: run.start, length: run.end - run.start, className }
     })
     wrapNodeMatches(node, marks)
   }
@@ -166,7 +197,7 @@ export function markConversation(container: Element, row: Element, target: JumpT
     if (row.contains(node) || isInsideMark(node)) continue
     const text = node.textContent ?? ''
     if (text.length === 0) continue
-    const marks = matchIndices(text, target.query, caseSensitive, wholeWord).map((index) => ({ index, length, className: BOX_CLASS }))
+    const marks = matchRunsOf(text, target.query, caseSensitive, wholeWord, regex).map((run) => ({ index: run.start, length: run.end - run.start, className: BOX_CLASS }))
     occurrences += marks.length
     wrapNodeMatches(node, marks)
   }
@@ -211,7 +242,7 @@ export function remark(sessions: SessionsLike, target: JumpTarget): void {
 
 /** Occurrences of the query anywhere inside one row, honoring the search-time flags. */
 function rowMatchCount(row: Element, target: JumpTarget): number {
-  return matchIndices(row.textContent ?? '', target.query, target.caseSensitive === true, target.wholeWord === true).length
+  return matchIndices(row.textContent ?? '', target.query, target.caseSensitive === true, target.wholeWord === true, target.regex === true).length
 }
 
 /**

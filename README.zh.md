@@ -7,9 +7,9 @@
   WorkspaceBrowser/WorkspacePicker（profile 中停用官方 `ui-workspace` 行，
   见 `~/.dsh/profiles/web/cordis.patch.yml`）。展开动效、结果就地替换会话
   列表、Esc/外点收起等官方行为逐字节保留，仅搜索路径做外科手术：
-  输入框左侧过滤栏（标题/内容范围、模糊子序列、大小写敏感、全词匹配——开启后
-  pnpm/batnpmdom 不命中 npm）、摘要命中词
-  着色、结果行右侧多命中下拉（≤8 条）；
+  输入框右端 vscode 风格模式开关（Aa 大小写 / ab 全词——开启后 pnpm/batnpmdom
+  不命中 npm / .* 正则 / fz 模糊子序列）、vscode 同款摘要窗口（lcut 词边界前导 +
+  单行省略）、结果行多命中下拉（≤8 条，hover 显示层级线）；
 - **自建高速索引**：仅索引 user/context/assistant 消息的文本块（排除工具
   参数/结果/推理等噪音），毫秒级响应，绕过官方引擎逐次 reconcile；
 - **跳转高亮**：点击命中进入会话后自动定位，所选命中高亮填充

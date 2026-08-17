@@ -1,41 +1,29 @@
-/** Unit tests for the search filter chip/highlight rules. */
+/** Unit tests for the search mode toggle matrix (vscode semantics). */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_FILTERS, filterChipKeys, filtersDiffer, type SearchFilters } from '../src/client/filters.ts'
+import { applyToggle, DEFAULT_FILTERS, type SearchFilters } from '../src/client/filters.ts'
 
 const base = (patch: Partial<SearchFilters>): SearchFilters => ({ ...DEFAULT_FILTERS, ...patch })
 
-describe('filterChipKeys', () => {
-  it('shows the fuzzy chip when fuzzy is ON (never the inverted form)', () => {
-    expect(filterChipKeys(base({ fuzzy: true }))).toEqual(['searchPlus.chipFuzzy'])
+describe('applyToggle', () => {
+  it('case toggles independently', () => {
+    expect(applyToggle(base({}), 'caseSensitive')).toEqual(base({ caseSensitive: true }))
+    expect(applyToggle(base({ caseSensitive: true, regex: true }), 'caseSensitive')).toEqual(base({ regex: true }))
   })
 
-  it('shows nothing by default (substring mode has no chip)', () => {
-    expect(filterChipKeys(base({}))).toEqual([])
+  it('fuzzy excludes regex and wholeWord', () => {
+    expect(applyToggle(base({ regex: true, wholeWord: true }), 'fuzzy')).toEqual(base({ fuzzy: true }))
+    expect(applyToggle(base({ fuzzy: true }), 'fuzzy')).toEqual(base({}))
   })
 
-  it('shows the case chip only when case-sensitive is on', () => {
-    expect(filterChipKeys(base({ caseSensitive: true }))).toEqual(['searchPlus.chipCase'])
+  it('regex excludes fuzzy but stacks with wholeWord', () => {
+    expect(applyToggle(base({ fuzzy: true }), 'regex')).toEqual(base({ regex: true }))
+    expect(applyToggle(base({ wholeWord: true }), 'regex')).toEqual(base({ wholeWord: true, regex: true }))
+    expect(applyToggle(base({ regex: true }), 'regex')).toEqual(base({}))
   })
 
-  it('shows the whole-word chip when whole-word is on', () => {
-    expect(filterChipKeys(base({ wholeWord: true }))).toEqual(['searchPlus.chipWord'])
-  })
-
-  it('shows the scope chip only for non-default scopes, in order', () => {
-    expect(filterChipKeys(base({ scope: 'title', caseSensitive: true }))).toEqual(['searchPlus.scopeTitle', 'searchPlus.chipCase'])
-    expect(filterChipKeys(base({ scope: 'content' }))).toEqual(['searchPlus.scopeContent'])
-  })
-})
-
-describe('filtersDiffer', () => {
-  it('is false for the defaults', () => {
-    expect(filtersDiffer(base({}))).toBe(false)
-  })
-
-  it('is true when any single filter deviates', () => {
-    expect(filtersDiffer(base({ scope: 'title' }))).toBe(true)
-    expect(filtersDiffer(base({ fuzzy: true }))).toBe(true)
-    expect(filtersDiffer(base({ caseSensitive: true }))).toBe(true)
-    expect(filtersDiffer(base({ wholeWord: true }))).toBe(true)
+  it('wholeWord excludes fuzzy but stacks with regex', () => {
+    expect(applyToggle(base({ fuzzy: true }), 'wholeWord')).toEqual(base({ wholeWord: true }))
+    expect(applyToggle(base({ regex: true }), 'wholeWord')).toEqual(base({ regex: true, wholeWord: true }))
+    expect(applyToggle(base({ wholeWord: true }), 'wholeWord')).toEqual(base({}))
   })
 })

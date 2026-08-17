@@ -32,6 +32,12 @@ describe('findRunsInText', () => {
     expect(findRunsInText('使用npm管理', 'npm', false, false, true)).toEqual([{ start: 2, end: 5 }])
     expect(findRunsInText('npx 与 npm 关系', 'npm', false, false, true)).toEqual([{ start: 6, end: 9 }])
   })
+
+  it('regex matches with real match length (not query length)', () => {
+    expect(findRunsInText('run npm install now', 'npm.*install', false, false, false, true)).toEqual([{ start: 4, end: 15 }])
+    expect(findRunsInText('run NPM install', 'npm.*install', false, true, false, true)).toBeNull()
+    expect(findRunsInText('anything', 'np[', false, false, false, true)).toBeNull()
+  })
 })
 
 describe('segmentsOf', () => {
@@ -60,6 +66,11 @@ describe('matchIndices', () => {
   it('honors case sensitivity and whole-word boundaries', () => {
     expect(matchIndices('npm and NPM', 'npm', true, false)).toEqual([0])
     expect(matchIndices('pnpm npm', 'npm', false, true)).toEqual([5])
+  })
+
+  it('regex mode collects real match spans and survives invalid patterns', () => {
+    expect(matchIndices('npm install; npm run', 'npm\\s+\\w+', false, false, true)).toEqual([0, 13])
+    expect(matchIndices('anything', 'np[', false, false, true)).toEqual([])
   })
 })
 

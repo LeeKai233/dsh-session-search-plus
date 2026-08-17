@@ -1,35 +1,32 @@
-/** Filter state for the enhanced search box: chips and the popover share these. */
+/** Search mode toggles for the enhanced search box (vscode-style inline buttons). */
 
 export interface SearchFilters {
-  scope: 'all' | 'title' | 'content'
   fuzzy: boolean
   caseSensitive: boolean
-  /** Whole-word: substring hits must not touch ASCII word chars. Mutually exclusive with fuzzy. */
+  /** Whole-word: hits must not touch ASCII word chars. Stacks with regex (a `\b` wrap). */
   wholeWord: boolean
+  /** Query is a regular expression. Mutually exclusive with fuzzy. */
+  regex: boolean
 }
 
-export const DEFAULT_FILTERS: SearchFilters = { scope: 'all', fuzzy: false, caseSensitive: false, wholeWord: false }
+export const DEFAULT_FILTERS: SearchFilters = { fuzzy: false, caseSensitive: false, wholeWord: false, regex: false }
+
+export type SearchFilterKey = keyof SearchFilters
 
 /**
- * Whether the filter set differs from the defaults — drives the filter
- * button's active (◈) highlight.
+ * Toggle one filter. vscode semantics: case is independent; wholeWord stacks
+ * with regex (vscode wraps the pattern in `\b`); fuzzy — our addition — is a
+ * subsequence mode, so it excludes regex and wholeWord.
  */
-export function filtersDiffer(filters: SearchFilters): boolean {
-  return filters.scope !== DEFAULT_FILTERS.scope
-    || filters.fuzzy !== DEFAULT_FILTERS.fuzzy
-    || filters.caseSensitive !== DEFAULT_FILTERS.caseSensitive
-    || filters.wholeWord !== DEFAULT_FILTERS.wholeWord
-}
-
-/**
- * Locale keys of the state chips, in display order. A chip shows the mode
- * that is ON: fuzzy on → fuzzy chip (never the inverted "off shows" form).
- */
-export function filterChipKeys(filters: SearchFilters): string[] {
-  const keys: string[] = []
-  if (filters.scope !== 'all') keys.push(filters.scope === 'title' ? 'searchPlus.scopeTitle' : 'searchPlus.scopeContent')
-  if (filters.fuzzy) keys.push('searchPlus.chipFuzzy')
-  if (filters.caseSensitive) keys.push('searchPlus.chipCase')
-  if (filters.wholeWord) keys.push('searchPlus.chipWord')
-  return keys
+export function applyToggle(filters: SearchFilters, key: SearchFilterKey): SearchFilters {
+  switch (key) {
+    case 'caseSensitive':
+      return { ...filters, caseSensitive: !filters.caseSensitive }
+    case 'fuzzy':
+      return filters.fuzzy ? { ...filters, fuzzy: false } : { ...filters, fuzzy: true, regex: false, wholeWord: false }
+    case 'regex':
+      return filters.regex ? { ...filters, regex: false } : { ...filters, regex: true, fuzzy: false }
+    case 'wholeWord':
+      return filters.wholeWord ? { ...filters, wholeWord: false } : { ...filters, wholeWord: true, fuzzy: false }
+  }
 }
