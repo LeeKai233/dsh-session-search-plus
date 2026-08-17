@@ -19,6 +19,9 @@ English: [README.md](./README.md)
 - **自建高速索引**：只索引 user / assistant 消息的文本块（注入的上下文也算
   user 消息；工具参数、结果、推理等噪声不索引），毫秒级响应，绕过官方引擎
   逐次 reconcile。
+- **启动即用（持久化增量缓存）**：索引结果按会话日志的持久化 revision 缓存到
+  磁盘，重启后只重读真正变化过的会话。本机 25 个会话 / 49 MB 压缩日志实测：
+  无变更重启约 90ms，冷建（无缓存）约 2.4s。
 
 官方搜索框的展开动效、结果就地替换会话列表、Esc / 外点收起等行为保持不变。
 
@@ -34,10 +37,17 @@ English: [README.md](./README.md)
 
 ## 架构
 
-- **宿主半**（`src/index.ts`）：启动时从持久化服务全量构建内存索引，随后经
-  `session/event` 增量更新（按 `(sessionId, seq)` 去重）；提供
+- **宿主半**（`src/index.ts`）：启动时构建内存索引，随后经 `session/event`
+  增量更新（按 `(sessionId, seq)` 去重）；提供
   `POST /api/search-plus/query`（子串 / 模糊子序列 / 正则，大小写与全词开关，
   按会话分组的窗口化摘要与命中偏移）。宿主改动需重启 dsh 才生效。
+- **文档缓存**（`src/doc-cache.ts`）：启动时先读缓存，再用持久化服务的
+  `listSnapshots()` 取每个会话的 revision 变更令牌逐一对账——revision 相同直接
+  复用缓存文档（零日志读），变化或未缓存才重读该会话，磁盘上已消失的会话丢弃。
+  建完索引后原子写回一份 zstd 缓存。
+- **文档提取**（`src/doc-scan.ts`）：读会话的逐字工件文本并逐行扫描，跳过
+  `text-chunks` 等打包存储行——比逻辑事件读省掉全部 delta 拆包
+  （本机 23.2 万物理行会被拆成 179 万逻辑事件，而索引一个都不需要）。
 - **浏览器半**（`src/client/`）：官方 `@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.6`
   的 WorkspaceBrowser 移植 fork。未改区域与官方产物逐字节一致，改动均以
   `// [search-plus]` 标记；官方升级后需按新基线重做移植。内容查询走
@@ -70,10 +80,24 @@ dsh --profile web --dump-config   # 应出现 session-search-plus 行
 启动后观察宿主日志：
 
 ```
-[search-plus] content index built: N docs from M sessions in Xms
+[search-plus] content index ready: N docs, A sessions from cache, B re-read in Xms
 ```
 
-随后在侧栏搜索框输入：出现带着色摘要与多命中下拉的内容结果，即接管成功。
+第一次启动 `A` 为 0（冷建）；之后无会话变更重启，`A` 应等于会话总数、`B` 为 0，
+耗时降到百毫秒级。随后在侧栏搜索框输入：出现带着色摘要与多命中下拉的内容结果，
+即接管成功。
+
+## 配置
+
+三项都可选，一般不用动：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `cachePath` | `<harness home>/session-search-plus-cache.json.zstd` | 缓存文件位置 |
+| `rawScan` | `true` | 读逐字工件。置 `false` 强制走逻辑事件读（慢约 6 倍），仅在 harness 改变存储行打包规则时才需要 |
+
+缓存文件约 240 KB，**任何时候删掉都安全**——下次启动冷建一份新的。缓存损坏、
+版本不符或写入失败都只是退回冷建，不影响启动。
 
 ## 卸载
 

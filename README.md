@@ -27,6 +27,10 @@ index answers in milliseconds, and the search UI follows VS Code.
   (injected context counts as a user message; tool arguments, results, and
   reasoning are left out). Queries answer in milliseconds and skip the official
   engine's per-call reconcile.
+- **Ready at boot (persisted incremental cache)**: extracted documents are
+  cached on disk keyed by each session log's persistence revision, so a restart
+  only re-reads sessions that actually changed. Measured on 25 sessions / 49 MB
+  of compressed logs: ~90 ms with no changes, ~2.4 s for a cold build.
 
 The official expand animation, in-place results replacing the session list, and
 Esc / outside-click collapse stay as they are.
@@ -46,12 +50,22 @@ The stock sidebar search box is the entry; there is no extra panel.
 
 ## Architecture
 
-- **Host half** (`src/index.ts`): builds the in-memory index from the
-  persistence service at boot, then keeps it incremental through the
-  `session/event` feed with `(sessionId, seq)` deduplication. Serves
+- **Host half** (`src/index.ts`): builds the in-memory index at boot, then keeps
+  it incremental through the `session/event` feed with `(sessionId, seq)`
+  deduplication. Serves
   `POST /api/search-plus/query` (substring / fuzzy subsequence / regex, with
   case and whole-word flags, per-session windowed snippets and match offsets).
   Host-half changes need a dsh restart.
+- **Document cache** (`src/doc-cache.ts`): the boot build reads the cache first,
+  then reconciles it against `listSnapshots()` — one cheap change token per
+  session. An unchanged revision reuses cached documents with zero log reads; a
+  changed or uncached session is re-read; a session gone from disk is dropped.
+  The cache is republished by atomic write once the build finishes.
+- **Document extraction** (`src/doc-scan.ts`): scans each session's verbatim
+  artifact line by line, skipping packed storage rows such as `text-chunks`.
+  That avoids all delta unpacking the logical read path performs (on this
+  machine 232k physical lines expand to 1.79M logical events, none of which the
+  index needs).
 - **Browser half** (`src/client/`): a fork of official
   `@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.6` WorkspaceBrowser. Unmodified
   regions stay byte-identical to the official bundle; every change is marked
@@ -90,11 +104,26 @@ dsh --profile web --dump-config   # shows the session-search-plus row
 After boot, watch the host log for:
 
 ```
-[search-plus] content index built: N docs from M sessions in Xms
+[search-plus] content index ready: N docs, A sessions from cache, B re-read in Xms
 ```
 
-Then type into the sidebar search box: content hits with colored snippets and
-per-session dropdowns confirm the takeover.
+On the first boot `A` is 0 (cold build). On any later restart with no session
+changes, `A` equals the session count, `B` is 0, and the time drops to
+hundreds of milliseconds. Then type into the sidebar search box: content hits
+with colored snippets and per-session dropdowns confirm the takeover.
+
+## Configuration
+
+Both keys are optional and rarely need changing:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cachePath` | `<harness home>/session-search-plus-cache.json.zstd` | Cache file location |
+| `rawScan` | `true` | Read verbatim artifacts. Set `false` to force the logical event read (~6x slower); only needed if the harness changes how storage rows are packed |
+
+The cache file is around 240 KB and **safe to delete at any time** — the next
+boot rebuilds it. Corruption, a version mismatch, or a failed write all degrade
+to a cold build without affecting startup.
 
 ## Uninstall
 

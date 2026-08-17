@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-search-plus",
-  "version": "0.2.0",
-  "description": "DSH 会话搜索框增强：自建高速内存索引 + /api/search-plus 路由，接管官方侧栏搜索框（vscode 风格 Aa/ab/.*/fz 模式开关、多命中下拉、锚点跳转高亮）",
+  "version": "0.3.0",
+  "description": "DSH 会话搜索框增强：自建高速内存索引（持久化增量缓存，热启动 ~90ms）+ /api/search-plus 路由，接管官方侧栏搜索框（vscode 风格 Aa/ab/.*/fz 模式开关、多命中下拉、锚点跳转高亮）",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -38,7 +38,8 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm test && pnpm bundle"
   },
   "license": "MIT",
   "peerDependencies": {

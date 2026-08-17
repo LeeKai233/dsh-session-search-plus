@@ -3,7 +3,34 @@
  * builder, event text extraction, in-memory index, and the HTTP route.
  */
 import { describe, expect, it } from 'vitest'
-import { SearchIndex, eventSearchText, findRuns, handleSearchRequest, snippetOf } from '../src/index.ts'
+import { SearchIndex, apply, eventSearchText, findRuns, handleSearchRequest, snippetOf } from '../src/index.ts'
+
+describe('apply config normalization', () => {
+  /** The minimum context surface apply() touches before any service resolves. */
+  const stubContext = () => ({
+    inject: () => {},
+    on: () => () => {},
+    get: () => undefined,
+    effect: () => {},
+  }) as never
+
+  it('accepts an omitted config', () => {
+    expect(() => apply(stubContext())).not.toThrow()
+  })
+
+  it('accepts a null config', () => {
+    // A loader row written as a bare `config:` key parses to null, and a
+    // default parameter only covers undefined — this threw a TypeError and
+    // failed plugin load before normalization was added.
+    expect(() => apply(stubContext(), null)).not.toThrow()
+  })
+
+  it('accepts an empty config and ignores wrongly typed fields', () => {
+    expect(() => apply(stubContext(), {})).not.toThrow()
+    expect(() => apply(stubContext(), { cachePath: 42 } as never)).not.toThrow()
+    expect(() => apply(stubContext(), { rawScan: 'no' } as never)).not.toThrow()
+  })
+})
 
 describe('findRuns', () => {
   it('substring matches case-insensitively by default', () => {

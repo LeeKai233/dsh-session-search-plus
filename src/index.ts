@@ -16,9 +16,29 @@
  * The official-index boot warmup lives in the sibling plugin
  * dsh-session-search-warmup; the two compose (warmup keeps the official
  * surface fast everywhere this plugin does not take over).
+ *
+ * The boot build is cached: documents are persisted keyed by each log's
+ * persistence revision, so an unchanged session costs one `stat` instead of a
+ * full decode+parse. See ./doc-cache.ts for the invalidation rules and
+ * ./doc-scan.ts for why the verbatim-artifact read replaced the logical one.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import {
+  buildCache,
+  planReconcile,
+  readCache,
+  resolveCachePath,
+  writeCache,
+  type SnapshotLike,
+} from './doc-cache.ts'
+import { eventSearchText, scanRawArtifact, scannedDocOf, type ScannedDoc } from './doc-scan.ts'
+
+// Real imports with local re-exports: a bare `export { x } from './m.ts'`
+// creates no local binding, and any in-module use would then be a free
+// variable the bundler is free to tree-shake away.
+export { eventSearchText, scanRawArtifact, scannedDocOf }
+export type { ScannedDoc }
 
 //#region search index types
 
@@ -224,46 +244,6 @@ export function snippetOf(text: string, runs: MatchRun[], lead = 26, cap = 250):
 
 //#endregion
 
-//#region document extraction
-
-type JsonRecord = Record<string, unknown>
-
-/** Only plain text blocks are searchable: no reasoning, tool calls, or results. */
-function blockText(block: unknown): string[] {
-  if (typeof block !== 'object' || block === null) return []
-  const record = block as JsonRecord
-  if (record.type !== 'text') return []
-  const text = record.text
-  return typeof text === 'string' && text.trim().length > 0 ? [text.trim()] : []
-}
-
-function joinText(parts: string[]): string {
-  return parts.join('\n').trim()
-}
-
-/**
- * Extract searchable text for exactly the events the feature cares about:
- * user messages (direct prompts AND agent.inject() context notices — both
- * are `user/message`) and assembled assistant messages. Everything else
- * (tool/call, tool/result, todo/write, turn/end, …) is excluded.
- */
-export function eventSearchText(event: unknown): string | undefined {
-  if (typeof event !== 'object' || event === null) return undefined
-  const record = event as JsonRecord
-  const type = record.type
-  if (type !== 'user/message' && type !== 'assistant/message') return undefined
-  const content = type === 'user/message'
-    ? record.data !== undefined && typeof record.data === 'object' ? ((record.data as JsonRecord).content ?? []) : []
-    : record.data !== undefined && typeof record.data === 'object'
-      ? (((record.data as JsonRecord).message as JsonRecord | undefined)?.content ?? [])
-      : []
-  if (!Array.isArray(content)) return undefined
-  const text = joinText(content.flatMap((block) => blockText(block)))
-  return text.length === 0 ? undefined : text
-}
-
-//#endregion
-
 //#region in-memory index
 
 export class SearchIndex {
@@ -408,15 +388,40 @@ export async function handleSearchRequest(index: SearchIndex, req: IncomingMessa
 
 //#endregion
 
+/** Host plugin configuration. */
+export interface Config {
+  /**
+   * Override the cache file location. Defaults to
+   * `<harness home>/session-search-plus-cache.json.zstd`.
+   */
+  cachePath?: string
+  /**
+   * Read each session's verbatim artifact instead of its logical event log
+   * (default `true`). Turn it off to force the logical `inspect` path — the
+   * escape hatch if a future harness packs message rows the way it already
+   * packs delta chunks.
+   */
+  rawScan?: boolean
+}
+
 /**
  * Assemble the host plugin.
  * @param ctx - host cordis context.
+ * @param config - optional host configuration.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: Config | null): void {
   const index = new SearchIndex()
+  // A loader row written as a bare `config:` key parses to null, and a default
+  // parameter only covers undefined — so normalize before reading any field.
+  const settings: Config = typeof config === 'object' && config !== null ? config : {}
+  const cachePath = resolveCachePath(typeof settings.cachePath === 'string' ? settings.cachePath : undefined)
+  const rawScanEnabled = settings.rawScan !== false
 
   interface PersistenceLike {
+    readonly supportsRawArtifacts?: boolean
     list(signal?: AbortSignal): Promise<Array<{ id: string }>>
+    listSnapshots?(signal?: AbortSignal): Promise<Array<{ header: { id: string }; revision: string }>>
+    readRaw?(id: string, signal?: AbortSignal): Promise<{ content: string } | undefined>
     inspect(id: string, signal?: AbortSignal): Promise<{ events: ReadonlyArray<unknown> }>
   }
 
@@ -443,38 +448,111 @@ export function apply(ctx: Context): void {
     }
     const offEvent = ctx.on('session/event' as never, onEvent as never)
 
-    const build = async (): Promise<void> => {
-      const started = Date.now()
-      let headers: Array<{ id: string }> = []
+    /**
+     * Read one persisted session's documents.
+     *
+     * Prefers the verbatim artifact (no chunk-row unpacking); falls back to the
+     * logical log when the backend exposes no raw artifact, when the raw read
+     * fails, or when `rawScan` is off.
+     */
+    const readDocs = async (sessionId: string): Promise<ScannedDoc[]> => {
+      if (rawScanEnabled && persistence.supportsRawArtifacts === true && typeof persistence.readRaw === 'function') {
+        try {
+          const artifact = await persistence.readRaw(sessionId)
+          if (artifact !== undefined) return scanRawArtifact(artifact.content)
+        } catch (error) {
+          console.warn(`[search-plus] raw read failed for "${sessionId}", falling back to inspect: ${String((error as Error | null)?.message ?? error)}`)
+        }
+      }
+      const inspection = await persistence.inspect(sessionId)
+      const docs: ScannedDoc[] = []
+      for (const event of inspection.events) {
+        const doc = scannedDocOf(event)
+        if (doc !== undefined) docs.push(doc)
+      }
+      return docs
+    }
+
+    /**
+     * List sessions with their change tokens. Falls back to the plain listing
+     * (every session re-read, nothing cached) when snapshots are unavailable.
+     */
+    const listSnapshots = async (): Promise<{ snapshots: SnapshotLike[]; revisioned: boolean }> => {
+      if (typeof persistence.listSnapshots === 'function') {
+        try {
+          const raw = await persistence.listSnapshots()
+          return { snapshots: raw.map((entry) => ({ sessionId: entry.header.id, rev: String(entry.revision) })), revisioned: true }
+        } catch (error) {
+          console.warn(`[search-plus] cannot list session revisions, falling back to a full rebuild: ${String((error as Error | null)?.message ?? error)}`)
+        }
+      }
       try {
-        headers = await persistence.list()
+        const headers = await persistence.list()
+        return { snapshots: headers.map((header) => ({ sessionId: header.id, rev: '' })), revisioned: false }
       } catch (error) {
         console.warn(`[search-plus] cannot list persisted sessions: ${String((error as Error | null)?.message ?? error)}`)
+        return { snapshots: [], revisioned: false }
       }
-      let loaded = 0
-      for (const header of headers) {
+    }
+
+    const build = async (): Promise<void> => {
+      const started = Date.now()
+      const cache = readCache(cachePath)
+      const { snapshots, revisioned } = await listSnapshots()
+      // Without revisions nothing may be reused: an unknown token must never
+      // compare equal to a stored one.
+      const plan = planReconcile(revisioned ? cache : undefined, snapshots)
+
+      // Revision-and-documents pairs captured from durable reads this boot.
+      const observed = new Map<string, { rev: string; docs: readonly ScannedDoc[] }>()
+
+      for (const entry of plan.reuse) {
+        for (const [seq, time, text] of entry.docs) index.put(entry.sessionId, seq, time, text)
+        observed.set(entry.sessionId, {
+          rev: entry.rev,
+          docs: entry.docs.map(([seq, time, text]) => ({ seq, time, text })),
+        })
+      }
+
+      let failed = 0
+      for (const snapshot of plan.reread) {
         try {
-          const inspection = await persistence.inspect(header.id)
-          for (const event of inspection.events) {
-            const record = event as { seq?: number; time?: number } | null
-            if (typeof record?.seq !== 'number' || typeof record.time !== 'number') continue
-            const text = eventSearchText(event)
-            if (text !== undefined) index.put(header.id, record.seq, record.time, text)
-          }
-          loaded += 1
+          const docs = await readDocs(snapshot.sessionId)
+          for (const doc of docs) index.put(snapshot.sessionId, doc.seq, doc.time, doc.text)
+          // The revision was observed BEFORE this read, so the pair can only
+          // be conservatively stale — never ahead of the log.
+          if (revisioned) observed.set(snapshot.sessionId, { rev: snapshot.rev, docs })
         } catch (error) {
-          console.warn(`[search-plus] failed to index session "${header.id}": ${String((error as Error | null)?.message ?? error)}`)
+          failed += 1
+          console.warn(`[search-plus] failed to index session "${snapshot.sessionId}": ${String((error as Error | null)?.message ?? error)}`)
         }
       }
+
+      // Live sessions last: their in-memory tail may lead the committed log,
+      // and these documents are deliberately never cached.
       for (const session of sessions?.list() ?? []) {
         for (const event of session.events) {
-          const record = event as { seq?: number; time?: number } | null
-          if (typeof record?.seq !== 'number' || typeof record.time !== 'number') continue
-          const text = eventSearchText(event)
-          if (text !== undefined) index.put(session.id, record.seq, record.time, text)
+          const doc = scannedDocOf(event)
+          if (doc !== undefined) index.put(session.id, doc.seq, doc.time, doc.text)
         }
       }
-      console.log(`[search-plus] content index built: ${index.size()} docs from ${loaded} sessions in ${Date.now() - started}ms`)
+
+      const elapsed = Date.now() - started
+      console.log(
+        `[search-plus] content index ready: ${index.size()} docs, ${plan.reuse.length} sessions from cache, `
+        + `${plan.reread.length - failed} re-read${failed > 0 ? `, ${failed} failed` : ''}`
+        + `${plan.drop.length > 0 ? `, ${plan.drop.length} stale dropped` : ''} in ${elapsed}ms`,
+      )
+
+      // One write, right after the build: a later hard kill still leaves the
+      // next boot a usable cache. Fail-soft — a lost write costs one rebuild.
+      if (revisioned) {
+        try {
+          writeCache(cachePath, buildCache(observed))
+        } catch (error) {
+          console.warn(`[search-plus] could not persist the index cache: ${String((error as Error | null)?.message ?? error)}`)
+        }
+      }
     }
     void build()
 
